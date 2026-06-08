@@ -1,0 +1,92 @@
+// Frameloop — database schema
+//
+// Off-chain index over on-chain posts. Source of truth lives on Aptos +
+// Shelby; this is the queryable layer for feeds, profiles, follows.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Visibility {
+  PRIVATE
+  FOLLOWERS
+  PUBLIC
+}
+
+enum FollowStatus {
+  ACTIVE
+  PENDING
+}
+
+model Profile {
+  // Aptos wallet address — the user's permanent identity.
+  address        String      @id
+
+  // Optional Aptos Name Service handle.
+  ansName        String?     @unique
+
+  // Editable display metadata (not on-chain).
+  displayName    String?
+  bio            String?
+  avatarBlobName String?
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  posts          PostCache[]
+
+  // Follow graph back-references.
+  // following = rows where this profile is the follower.
+  // followers = rows where this profile is the followee.
+  following      Follow[]    @relation("Following")
+  followers      Follow[]    @relation("Followers")
+}
+
+model Follow {
+  followerAddress String
+  follower        Profile      @relation("Following", fields: [followerAddress], references: [address], onDelete: Cascade)
+
+  followeeAddress String
+  followee        Profile      @relation("Followers", fields: [followeeAddress], references: [address], onDelete: Cascade)
+
+  status          FollowStatus @default(ACTIVE)
+  createdAt       DateTime     @default(now())
+
+  @@id([followerAddress, followeeAddress])
+  @@index([followeeAddress, createdAt])
+  @@index([followerAddress, createdAt])
+}
+
+model PostCache {
+  // Internal id; the on-chain truth is (ownerAddress, blobName).
+  postId           String     @id @default(uuid()) @db.Uuid
+
+  ownerAddress     String
+  owner            Profile    @relation(fields: [ownerAddress], references: [address], onDelete: Cascade)
+
+  // Shelby blob coordinates.
+  blobName         String     // e.g. "posts/<32-hex>"
+  contentHash      String?    // sha256 hex of file (browser-side)
+  size             Int        // bytes
+
+  // Visibility + pool placement.
+  visibility       Visibility
+  tag              String?    // pool category; only meaningful when visibility = PUBLIC
+  caption          String?
+
+  // Aptos commit reference.
+  txHash           String
+  expirationMicros BigInt     // Shelby TTL (microseconds since epoch)
+
+  createdAt        DateTime   @default(now())
+
+  @@unique([ownerAddress, blobName])
+  @@index([ownerAddress, createdAt(sort: Desc)])
+  @@index([visibility, createdAt(sort: Desc)])
+  @@index([tag, createdAt(sort: Desc)])
+}

@@ -1,0 +1,570 @@
+@import "tailwindcss";
+
+/* -------------------------------------------------------------------------- */
+/*  Frameloop — design tokens                                                  */
+/*                                                                             */
+/*  Paper-white aesthetic. Pure monochrome chrome — colour only ever comes     */
+/*  from a user's photographs. Tick-marks and thin rules carry the visual      */
+/*  language of an architect's ruler.                                          */
+/* -------------------------------------------------------------------------- */
+
+@theme {
+  /* Paper-white surface system */
+  --color-paper: #faf9f6;
+  --color-surface: #ffffff;
+  --color-ink: #1a1a1a;
+  --color-mute: #8a8a86;
+  --color-whisper: #d8d8d2;
+  --color-edge: #ececea;
+  --color-mark: #1a1a1a;
+
+  /* Fonts: --font-display / --font-sans / --font-mono are injected by      */
+  /* next/font in layout.tsx, so referenced as-is throughout the app.       */
+
+  /* Easing: slow, confident, never bouncy. */
+  --ease-paper: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Base                                                                       */
+/* -------------------------------------------------------------------------- */
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Lock the page horizontally. Pages like Vault have an internal strip      */
+  /* that's wider than the viewport; without this, trackpad horizontal       */
+  /* gestures pan the whole document instead of scrubbing the strip.         */
+  overflow-x: hidden;
+  /* Touchpad pan-x should never cause a back-nav swipe-gesture either.      */
+  overscroll-behavior-x: none;
+  /* Reserve space for the vertical scrollbar even when it isn't needed.     */
+  /* Without this, navigating from a page that fits in the viewport (/ ,    */
+  /* /feed) to one that doesn't (/upload during certain phases) pops a      */
+  /* scrollbar into existence and shifts everything 15px left — the         */
+  /* centred ChromeBar nav visibly snaps right with it. Stable gutter       */
+  /* keeps the layout width identical across routes.                         */
+  scrollbar-gutter: stable;
+}
+
+/* Subtle paper grain — sits behind everything, never reads as noise but      */
+/* gives the white background a quiet warmth. Single SVG, no extra request.   */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.06 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+/* Anything that should ride above the grain. */
+.relative,
+main,
+header,
+nav,
+section,
+article {
+  position: relative;
+}
+main,
+header {
+  z-index: 1;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Reusable atoms                                                             */
+/* -------------------------------------------------------------------------- */
+
+/* Selection — quiet, like a pencil mark. */
+::selection {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/* Top-row nav link. Display face, italic, mute by default. Hover lifts     */
+/* the colour to ink and scales up ~8% — the same gentle paper-easing as   */
+/* the chrome dots. The active section gets a small ink dot underneath,    */
+/* drawn via ::after so it sits independent of the label baseline.          */
+.chrome-nav-link {
+  position: relative;
+  display: inline-block;
+  padding: 6px 2px 10px;
+  font-size: 17px;
+  font-style: italic;
+  line-height: 1;
+  letter-spacing: 0.005em;
+  color: var(--color-mute);
+  transform-origin: center;
+  transition:
+    color 220ms var(--ease-paper),
+    transform 220ms var(--ease-paper);
+}
+.chrome-nav-link:hover {
+  color: var(--color-ink);
+  transform: scale(1.08);
+}
+.chrome-nav-link.is-active {
+  color: var(--color-ink);
+}
+.chrome-nav-link.is-active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--color-ink);
+  transform: translateX(-50%);
+}
+
+/* The thin round buttons that bookend the chrome (top-left avatar dot,      */
+/* top-right action). 32px hit target, hairline border, ink hover.           */
+.chrome-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-edge);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  transition: border-color 200ms var(--ease-paper),
+    background 200ms var(--ease-paper),
+    transform 200ms var(--ease-paper);
+}
+.chrome-dot:hover {
+  border-color: var(--color-ink);
+}
+.chrome-dot:active {
+  transform: scale(0.96);
+}
+
+/* Photo card — the white-bordered polaroid the whole app revolves around.   */
+/* The base transition list covers shadow / border / transform that drive   */
+/* selection mode below.                                                     */
+/*                                                                            */
+/* `width` and `aspect-ratio` are deliberately NOT transitioned. When an    */
+/* image classifies into its aspect bucket on load, we want the card's size */
+/* to snap to the new dimensions INSTANTLY. The aspect-change useLayout-   */
+/* Effects in Vault and FeedTimeline then re-centre the active card based   */
+/* on those new dimensions, all before paint. If width / aspect-ratio were  */
+/* CSS-transitioned, the size morph would animate over 380ms while the     */
+/* react re-centre fired synchronously against OLD dimensions, leaving the  */
+/* strip mis-centred for the duration of the animation (and stuck at the   */
+/* wrong final scroll position when the animation ended without a further  */
+/* React event to fire the recentre). The visible artefact was: Vault's    */
+/* timeline went blank (all cards drifted past the opacity-0 viewport     */
+/* edge), Feed's active photo floated above the centre pin.                 */
+/*                                                                            */
+/* `opacity` is also NOT in the transition list. The Vault writes opacity   */
+/* to each card directly from the scroll handler — one continuous value    */
+/* per scroll tick — and a transition there would put a lag between the   */
+/* strip moving and the cards dimming. Selection mode's --faded class      */
+/* drops opacity to 0.22 and that change will snap rather than fade — but  */
+/* selection is a deliberate action so snap feels intentional. If you      */
+/* ever want a smooth selection crossfade, animate on `filter:             */
+/* brightness()` instead.                                                    */
+.photo-card {
+  background: var(--color-surface);
+  border-radius: 2px;
+  padding: 10px 10px 14px;
+  border: 1px solid transparent;
+  box-shadow:
+    0 1px 2px rgba(20, 20, 20, 0.05),
+    0 12px 28px -8px rgba(20, 20, 20, 0.12);
+  transition:
+    box-shadow 240ms var(--ease-paper),
+    border-color 240ms var(--ease-paper),
+    transform 240ms var(--ease-paper);
+}
+.photo-card > .photo-card__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--color-whisper);
+}
+/* Selection mode — entered by double-clicking a photo in the Vault.       */
+/* The chosen card gains an ink hairline, a luminous white "glow" ring,    */
+/* a deeper drop shadow, and a small lift. The luminous ring is a paper-   */
+/* coloured outer shadow that brightens the card without changing its     */
+/* colour — so dark photos still look "lit" without being washed out.      */
+/* Sibling cards fade further than before so the contrast reads at a       */
+/* glance even when several cards are visible at once.                     */
+.photo-card--selected {
+  border-color: var(--color-ink);
+  box-shadow:
+    0 0 0 4px var(--color-surface),
+    0 0 0 5px var(--color-ink),
+    0 2px 4px rgba(20, 20, 20, 0.08),
+    0 28px 56px -10px rgba(20, 20, 20, 0.28);
+  transform: translateY(-6px) scale(1.02);
+}
+.photo-card--faded {
+  opacity: 0.22;
+  filter: saturate(0.6);
+}
+/* While the on-chain delete tx is pending: gentle pulse and locked-out    */
+/* pointer events so the user can't spam or scrub away mid-flight.         */
+.photo-card--deleting {
+  animation: card-pulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes card-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* Tick marks on the ruler. Drawn with a repeating linear-gradient so they   */
+/* scale infinitely and cost nothing. Every 10th tick is taller (handled by  */
+/* a second layered gradient).                                                */
+.ruler-h {
+  --tick: var(--color-whisper);
+  --tick-strong: var(--color-mute);
+  height: 28px;
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      var(--tick) 0,
+      var(--tick) 1px,
+      transparent 1px,
+      transparent 8px
+    ),
+    repeating-linear-gradient(
+      to right,
+      var(--tick-strong) 0,
+      var(--tick-strong) 1px,
+      transparent 1px,
+      transparent 80px
+    );
+  background-size:
+    100% 12px,
+    100% 20px;
+  /* The "drum" effect: an ancestor (e.g. Vault root) sets --strip-x =
+     -scrollLeft on scroll, which shifts the tick gradient to match the
+     photo-strip motion above. The `0px` is the fallback when no ancestor
+     declared --strip-x, so a static page still renders a normal ruler.
+     IMPORTANT: don't redeclare `--strip-x: 0px` as a local property here —
+     that would override the inherited value back to zero. Use the
+     `var(name, fallback)` syntax instead. */
+  background-position:
+    var(--strip-x, 0px) 50%,
+    var(--strip-x, 0px) 50%;
+  background-repeat: repeat-x, repeat-x;
+}
+
+.ruler-v {
+  --tick: var(--color-whisper);
+  --tick-strong: var(--color-mute);
+  width: 28px;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      var(--tick) 0,
+      var(--tick) 1px,
+      transparent 1px,
+      transparent 8px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      var(--tick-strong) 0,
+      var(--tick-strong) 1px,
+      transparent 1px,
+      transparent 80px
+    );
+  background-size:
+    12px 100%,
+    20px 100%;
+  /* Same pattern as ruler-h, just on the Y axis: an ancestor sets
+     --strip-y = -scrollTop and the ticks slide vertically in lockstep with
+     the photo column. `0px` fallback keeps a static ruler valid. */
+  background-position:
+    50% var(--strip-y, 0px),
+    50% var(--strip-y, 0px);
+  background-repeat: repeat-y, repeat-y;
+}
+
+/* Centered ink "pin" that marks the current position on the ruler. */
+.ruler-pin {
+  position: relative;
+  width: 2px;
+  height: 24px;
+  background: var(--color-ink);
+}
+/* Open "rooftop" chevron — sits on top of the pin and only appears when
+ * the timeline has settled on a photo. Stroked (hollow), so it reads as
+ * an architectural marker rather than a heavy pointer. Fades out the
+ * moment scrolling starts so the eye isn't distracted mid-scrub, and
+ * fades back in when the magnet locks the strip onto a card. */
+.ruler-pin__tip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--color-ink);
+  pointer-events: none;
+}
+
+/* Horizontal sibling of .ruler-pin — same role, lying on its side. Used by
+ * Feed where the ruler runs vertically and the pin sticks out toward the
+ * photo column to its right. Width animates with the snap state. */
+.ruler-pin-h {
+  position: relative;
+  width: 24px;
+  height: 2px;
+  background: var(--color-ink);
+}
+/* Right-pointing chevron — same idea as .ruler-pin__tip but rotated 90°
+ * so it aims at the photos beside the ruler instead of above it. */
+.ruler-pin-h__tip {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-ink);
+  pointer-events: none;
+}
+
+/* Page fade-in: tick marks first, then content. Used on every primary page. */
+@keyframes paper-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.paper-rise {
+  animation: paper-rise 800ms var(--ease-paper) both;
+}
+
+@keyframes ruler-draw {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+.ruler-draw {
+  transform-origin: center;
+  animation: ruler-draw 1100ms var(--ease-paper) both;
+}
+
+/* Hide scrollbars on the timeline strip — we drive the position ourselves. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Upload page — cropper, drop zone, paper-styled form controls               */
+/* -------------------------------------------------------------------------- */
+
+/* Aspect bucket tabs (Square / Portrait / Landscape) — sibling of the
+ * chrome nav links visually, but smaller and without the underline dot. */
+.aspect-tab {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--color-mute);
+  letter-spacing: 0.01em;
+  padding: 2px 0;
+  transition:
+    color 200ms var(--ease-paper),
+    transform 200ms var(--ease-paper);
+}
+.aspect-tab:hover {
+  color: var(--color-ink);
+  transform: scale(1.06);
+}
+.aspect-tab.is-active {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 5px;
+}
+
+/* Drag-and-drop zone shown before the user picks a file. The dashed
+ * border deepens to ink the moment a file is dragged over the window
+ * (the .is-dragging modifier is toggled by the JS). */
+.paper-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  max-height: 60vh;
+  border: 1.5px dashed var(--color-edge);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-mute);
+  cursor: pointer;
+  transition:
+    border-color 220ms var(--ease-paper),
+    background 220ms var(--ease-paper),
+    color 220ms var(--ease-paper),
+    transform 220ms var(--ease-paper);
+}
+.paper-drop:hover,
+.paper-drop:focus-visible {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+  outline: none;
+}
+.paper-drop.is-dragging {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  transform: scale(1.005);
+}
+
+/* Hairline text input / textarea in paper aesthetic. */
+.paper-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-edge);
+  /* Use longhand for vertical padding so consumers can override
+   * padding-left / padding-right via Tailwind utilities (e.g. the
+   * search input needs `pl-7` to make room for the magnifier glyph).
+   * The previous `padding: 8px 0 10px` shorthand reset left/right
+   * to 0 with equal specificity, beating the utility class because
+   * it was declared later in the stylesheet. */
+  padding-top: 8px;
+  padding-bottom: 10px;
+  font-size: 15px;
+  color: var(--color-ink);
+  transition: border-color 200ms var(--ease-paper);
+}
+.paper-input::placeholder {
+  color: var(--color-mute);
+}
+.paper-input:focus {
+  outline: none;
+  border-bottom-color: var(--color-ink);
+}
+.paper-input[as="textarea"],
+textarea.paper-input {
+  resize: none;
+  line-height: 1.45;
+}
+
+/* Visibility radio row — a discreet circle that fills with ink when active. */
+.paper-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 0;
+  cursor: pointer;
+  border-top: 1px solid var(--color-edge);
+}
+.paper-radio:first-of-type {
+  border-top: none;
+}
+.paper-radio__dot {
+  position: relative;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-mute);
+  transition: border-color 200ms var(--ease-paper);
+}
+.paper-radio__dot::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 9999px;
+  background: var(--color-ink);
+  transform: scale(0);
+  transition: transform 200ms var(--ease-paper);
+}
+.paper-radio.is-active .paper-radio__dot {
+  border-color: var(--color-ink);
+}
+.paper-radio.is-active .paper-radio__dot::after {
+  transform: scale(1);
+}
+
+/* Paper-toned slider for the cropper zoom. */
+.paper-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: var(--color-whisper);
+  border-radius: 2px;
+}
+.paper-range:focus {
+  outline: none;
+}
+.paper-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--color-ink);
+  cursor: grab;
+  border: none;
+  margin-top: 0;
+}
+.paper-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--color-ink);
+  cursor: grab;
+  border: none;
+}
+.paper-range:active::-webkit-slider-thumb,
+.paper-range:active::-moz-range-thumb {
+  cursor: grabbing;
+}
+
+/* The primary action button — pure ink pill. Used on /upload to confirm. */
+.paper-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 28px;
+  border-radius: 9999px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  border: none;
+  cursor: pointer;
+  transition:
+    transform 200ms var(--ease-paper),
+    opacity 200ms var(--ease-paper);
+}
+.paper-button:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+.paper-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.paper-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
